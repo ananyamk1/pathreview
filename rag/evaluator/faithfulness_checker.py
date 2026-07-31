@@ -34,15 +34,27 @@ class FaithfulnessChecker:
             logger.info("faithfulness_no_claims_extracted")
             return 0.5  # Default to neutral if no extractable claims
 
-        # Concatenate context text
-        # REPRODUCED BUG (issue #153): dict.get's default only applies when the
-        # "text" key is ABSENT. A chunk that explicitly has {"text": None} makes
-        # .get return None, and " ".join([... None ...]) raises:
-        #   TypeError: sequence item 0: expected str instance, NoneType found
-        # Repro: pytest tests/unit/test_faithfulness_checker.py::\
-        #   TestFaithfulnessChecker::test_none_context_chunk_text
-        # Fix planned in PLAN.md (Week 9): coerce missing/None text to "".
-        context_text = " ".join([chunk.get("text", "") for chunk in context_chunks])
+        # Concatenate context text.
+        # A chunk's "text" may be missing, explicitly None, or a non-string.
+        # dict.get's default only applies when the key is ABSENT, so a chunk of
+        # {"text": None} would return None and make " ".join([... None ...])
+        # raise "TypeError: sequence item 0: expected str instance, NoneType
+        # found" (issue #153). Coerce every chunk's text to a string and skip
+        # empties so scoring proceeds over whatever valid text remains.
+        texts = []
+        skipped = 0
+        for chunk in context_chunks:
+            text = chunk.get("text")
+            if isinstance(text, str) and text:
+                texts.append(text)
+            elif text is None or text == "":
+                skipped += 1
+            else:
+                # Non-string, non-empty (e.g. a number): coerce defensively.
+                texts.append(str(text))
+        if skipped:
+            logger.info("faithfulness_skipped_empty_chunks", skipped_count=skipped)
+        context_text = " ".join(texts)
 
         # Check each claim for support
         supported = 0
