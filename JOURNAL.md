@@ -62,3 +62,69 @@ count/order, minimal change) or filter such chunks out entirely — leaning towa
 coercion plus a `structlog` warning so null chunks don't silently disappear.
 Also unsure whether non-string `text` values ever occur in real retrieval
 output; the plan handles them defensively regardless.
+
+## Week 9 — Solution building & PR submission
+
+### Check-in 1 (mid-week)
+
+**Current progress:**
+Implemented the core fix from PLAN.md. Done so far:
+- Sub-task 1 (fix the coercion in `check`): replaced
+  `" ".join([chunk.get("text", "") ...])` in
+  `rag/evaluator/faithfulness_checker.py` with a loop that keeps non-empty
+  string texts, skips `None`/empty values (logging a `structlog` count), and
+  `str()`-coerces any non-string value.
+- Sub-task 2 (guard the return path): confirmed an all-`None`/empty context now
+  returns a valid `0.0` instead of raising.
+- Sub-task 3 (turn the None test green) and sub-task 4 (regression coverage):
+  rewrote `test_none_context_chunk_text` as an explicit `#153` regression test
+  and added `test_mixed_none_and_valid_chunks`, `test_all_none_chunks_returns_zero`,
+  `test_empty_string_text_chunk`, and `test_non_string_text_is_coerced` in
+  `tests/unit/test_faithfulness_checker.py`.
+
+**Next steps:**
+Sub-task 5 — run the full suite + linters, self-review against
+`docs/CONTRIBUTING.md`, then open the PR and request feedback in the cohort
+Slack channel.
+
+**Blockers:**
+The repo has ~53 pre-existing unit-test failures and ~181 pre-existing lint
+errors unrelated to issue #153 (e.g. `test_skill_extractor.py`,
+`test_tech_detector.py`, and 3 pre-existing faithfulness scoring-threshold
+tests). I baselined these before starting so I can show my change introduces no
+new failures; not a blocker for the fix itself.
+
+---
+
+### Check-in 2 (end of week)
+
+**PR link:** https://github.com/ascherj/pathreview/pull/462
+
+**Branch:** `fix/153-faithfulness-checker-none-text`
+
+**What you built:**
+`FaithfulnessChecker.check` crashed with
+`TypeError: sequence item 0: expected str instance, NoneType found` whenever a
+retrieved context chunk was `{"text": None}`, because `dict.get`'s default only
+applies to absent keys. The fix coerces each chunk's text to a string —
+skipping `None`/empty values and `str()`-coercing non-strings — so faithfulness
+scoring proceeds over whatever valid text remains instead of aborting on one
+null chunk.
+
+**Tests added or updated:**
+`tests/unit/test_faithfulness_checker.py` — rewrote `test_none_context_chunk_text`
+as an explicit regression test for the `#153` `TypeError`, and added four tests:
+`test_mixed_none_and_valid_chunks` (a `None` chunk is skipped while a valid chunk
+still supports the claim), `test_all_none_chunks_returns_zero` (all-`None` context
+returns `0.0`), `test_empty_string_text_chunk` (empty-string text is no-support,
+not a crash), and `test_non_string_text_is_coerced` (a numeric `text` is coerced,
+not crashed).
+
+**Self-review confirmation:** [x] make check passes  [x] make test-unit passes
+*(Interpreted per the assignment's pre-existing-failures rule: the repo has
+~53 pre-existing unit-test failures and ~181 pre-existing lint errors unrelated
+to #153. Baselined before my change and re-checked after — my change introduces
+no new failures. My two touched files pass `ruff`, `black`, and `mypy`
+individually. Details in the PR's "Notes for Reviewers".)*
+
+**Draft PR feedback received from:** none
