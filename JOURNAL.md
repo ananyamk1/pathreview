@@ -128,3 +128,100 @@ no new failures. My two touched files pass `ruff`, `black`, and `mypy`
 individually. Details in the PR's "Notes for Reviewers".)*
 
 **Draft PR feedback received from:** none
+
+## Week 10 — Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [ ] Yes  [x] No — still awaiting review
+
+**Summary of feedback:**
+No review arrived. PR #462 (https://github.com/ascherj/pathreview/pull/462) has
+been open since the end of Week 9 with no comments, review requests answered, or
+maintainer activity on the thread. I re-checked the PR at the end of Week 10 and
+it is still open and unreviewed. Per the Summer 2026 note, reviewer feedback
+isn't part of this term, so this is the expected outcome rather than a stalled
+conversation.
+
+**How you responded:**
+Nothing to respond to, so I left the branch as submitted rather than adding
+speculative commits on top of a PR nobody has read yet. The one thing I did do
+was re-read my own diff and the PR description as if I were the reviewer, to
+check that the two questions I'd expect a maintainer to ask are already answered
+in writing: (1) why coerce `None` text to skipped-and-counted instead of
+filtering the chunk out silently — answered in the code comment and the
+`structlog` `faithfulness_skipped_empty_chunks` line; and (2) whether the
+~53 unit-test failures and ~181 lint errors in the PR's CI are mine — answered
+in the "Notes for Reviewers" section, where I baselined them before touching
+anything. If feedback does come in later I'd work the threads in the order the
+guide describes: read everything first, then reply to each comment before
+pushing follow-up commits.
+
+---
+
+### Reflection
+
+**What was harder than you expected?**
+The one-line part of the fix was the easy part; the hard part was deciding what
+"correct" meant. Issue #153 says the checker crashes on `{"text": None}`, but it
+doesn't say what should happen instead, and there are at least three defensible
+answers: coerce to `""`, drop the chunk from the list, or raise a clearer error
+for the caller. I spent most of Week 8 on that decision rather than on code, and
+I ended up on coerce-and-count-skips because the checker returns a ratio —
+dropping chunks silently would quietly change a score, which is worse than
+crashing, since nobody would notice. I also didn't expect the *baseline* to be
+so much work: the first time I ran `make test-unit` I got a wall of red and
+assumed I'd broken the environment, when in fact ~53 of those failures were
+already there on a clean checkout. Proving "not mine" took longer than the fix.
+
+**What did you learn about working in a large codebase?**
+In my own projects I know the whole call graph, so I can reason about a change
+from memory. Here I couldn't — `FaithfulnessChecker.check` is called from the
+RAG evaluation path, and I had no idea who constructs those `context_chunks`
+dicts or whether a `text: None` chunk was a real upstream bug or a legitimate
+shape I had to tolerate. That changed how I wrote the fix: instead of asserting
+what the data should look like, I made the function survive whatever it gets and
+log when the input is odd. I also learned that a repo's existing conventions
+carry more weight than my preferences — `structlog` with event-name-plus-kwargs
+(`logger.info("faithfulness_skipped_empty_chunks", skipped_count=skipped)`) is
+not how I'd log by instinct, but matching the file's five other log calls
+matters more than my taste, because the reviewer's job is to read a diff that
+looks like the rest of the code.
+
+**How did AI tools help — and where did they fall short?**
+Most useful for orientation and for mechanical breadth. Asking for the places a
+`dict.get(key, default)` idiom breaks got me to the real root cause — the
+default only applies when the key is *absent* — faster than I'd have found it by
+staring at the traceback, and it was good at generating the extra test cases
+around the core one (`test_mixed_none_and_valid_chunks`,
+`test_all_none_chunks_returns_zero`, `test_empty_string_text_chunk`,
+`test_non_string_text_is_coerced`). Where it fell short was exactly the judgment
+call above: asked what to do about `text: None`, it happily produced a confident
+answer for whichever option I hinted at, including the silent-filter version
+that would have corrupted the score. It has no stake in the project, so it can't
+tell me which tradeoff this codebase would accept — that came from reading how
+`check` uses `supported / len(claims)` and realizing the denominator makes
+silence dangerous. It also couldn't tell me which of the 53 failing tests were
+pre-existing; only actually running the suite on a clean checkout could.
+
+**What would you do differently if you started over?**
+Two things. First, I'd baseline the test suite and linters on a clean checkout
+*before* writing a single line, and paste that baseline into PLAN.md on day one —
+I did it eventually, but reconstructing it after the fact made me less sure of my
+own results and cost me a Week 9 check-in's worth of time. Second, I'd ask the
+maintainer the scope question early, in the issue thread, rather than resolving
+it alone in PLAN.md: "should a null-text chunk be skipped or should the caller
+hear about it?" is a 30-second answer for someone who knows the retrieval code,
+and asking in public would also have put my name on the issue before I opened a
+PR out of nowhere. I'd probably also pick an issue whose file wasn't sitting next
+to a set of already-failing tests, since half my PR description ended up being
+about noise I didn't cause.
+
+**What are you most proud of from this module?**
+That the commit message explains the *why* rather than the change. Anyone reading
+`git log` later sees "dict.get's default only applies when the key is absent" and
+learns the actual Python gotcha, not just that a line moved — and the code
+comment at the fix site says the same thing so the next person doesn't
+"simplify" it back into the bug. The fix itself is 21 lines; the part I care
+about is that it's self-documenting and that the regression test names the issue
+number, so `#153` can't silently come back.
